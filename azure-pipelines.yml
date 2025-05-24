@@ -1,9 +1,9 @@
-# For Azure Agent
+# For Local Agent
 trigger:
   - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  name: Default
 
 steps:
   - task: UseDotNet@2
