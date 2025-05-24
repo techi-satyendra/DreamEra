@@ -1,17 +1,68 @@
+# Trigger the pipeline to run when code is pushed to the 'main' branch
 trigger:
   - main
 
+# Specify the agent pool to use; 'Default' means your self-hosted agent
 pool:
-  name: Default
+  name: Default  # Your self-hosted agent
 
-steps:
-  - task: UseDotNet@2
-    inputs:
-      packageType: 'sdk'
-      version: '8.0.x'
+# Define reusable variables for the pipeline
+variables:
+  azureSubscription: 'azureportalserviceconnection'  # Name of the Azure DevOps service connection
+  appName: 'DreamErawebappdemo'              # Name of the Azure Web App to deploy to
+  publishDir: '$(Build.ArtifactStagingDirectory)/published'  # Output directory for published files
 
-  - script: dotnet build --configuration Release
-    displayName: 'Build Project'
+# Define the stages of the pipeline
+stages:
+  
+  # ----------------------- Build Stage ------------------------  
+  - stage: Build
+    displayName: "Build Stage"  # Friendly name shown in Azure DevOps UI
+    jobs:
+      - job: BuildJob
+        displayName: "Build"  # Display name for the job
+        steps:
+          # Install the .NET SDK version needed for the project
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '8.0.x'  # Use latest patch of .NET SDK 7.0
+          
+          # Build the .NET project in Release mode
+          - script: dotnet build --configuration Release
+            displayName: "Build Project"
 
-  - script: dotnet test
-    displayName: 'Run Tests'
+          # Run the tests in the project
+          - script: dotnet test
+            displayName: "Run Tests"
+
+          # Publish the compiled output to the specified folder
+          - script: dotnet publish -c Release -o $(publishDir)
+            displayName: "Publish App"
+
+          # Publish the output folder as an artifact named 'drop' to be used in the next stage
+          - publish: $(publishDir)
+            artifact: drop
+
+  # ----------------------- Deploy Stage ------------------------  
+  - stage: Deploy
+    displayName: "Release Stage"  # Friendly name for the deployment stage
+    dependsOn: Build              # Wait for the Build stage to complete
+    jobs:
+      - deployment: DeployWebApp  # A special job type for deployment
+        environment: 'production' # Logical environment name in DevOps; can include approvals
+        strategy:
+          runOnce:                # Deploy just once (no rolling or canary strategy)
+            deploy:
+              steps:
+                # Download the published artifact created in the Build stage
+                - download: current
+                  artifact: drop
+                
+                # Use the Azure Web App task to deploy the app to Azure
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: $(azureSubscription)  # Uses the service connection
+                    appType: webApp                          # Specifies it is a Web App (not a function or container)
+                    appName: $(appName)                      # Web App name in Azure
+                    package: $(Pipeline.Workspace)/drop      # Path to the artifact folder to deploy
